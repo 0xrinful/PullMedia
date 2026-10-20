@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/lmittmann/tint"
 )
 
-var downloadSemaphore = make(chan struct{}, 5)
+var downloadSemaphore = make(chan struct{}, getEnvInt("DOWNLOAD_CONCURRENCY", 5))
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -44,4 +45,12 @@ func main() {
 
 	slog.Info("PullMedia is running...")
 	b.Start(ctx)
+}
+
+func getEnvInt(key string, fallback int) int {
+	value, err := strconv.Atoi(os.Getenv(key))
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
 }
