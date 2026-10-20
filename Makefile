@@ -19,13 +19,27 @@ help:
 run:
 	@go run .
 
-
 # ==================================================================================== #
 # BUILD
 # ==================================================================================== #
 .PHONY: build
 build:
 	@go build -ldflags="-s -w" -trimpath -o pullmedia .
+	@echo "Binary built successfully."
+
+# ==================================================================================== #
+# DEPLOY
+# ==================================================================================== #
+.PHONY: deploy
+deploy: build
+	@echo "Stopping pullmedia service..."
+	@ssh $(VM_HOST) "systemctl stop pullmedia || true"
+	@echo "Uploading binary to VM..."
+	@ssh $(VM_HOST) "mkdir -p $(VM_DIR)"
+	@scp pullmedia $(VM_HOST):$(VM_DIR)/pullmedia
+	@echo "Starting pullmedia service..."
+	@ssh $(VM_HOST) "systemctl start pullmedia"
+	@echo "Deployment complete!"
 
 # ==================================================================================== #
 # MAINTENANCE
@@ -34,3 +48,5 @@ build:
 clean:
 	@rm -rf /tmp/pullmedia_*
 	@echo "Cleaned up residual temp files."
+
+
