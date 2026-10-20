@@ -11,6 +11,7 @@ import (
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
 	"github.com/lmittmann/tint"
+	"github.com/lrstanley/go-ytdlp"
 )
 
 var downloadSemaphore = make(chan struct{}, getEnvInt("DOWNLOAD_CONCURRENCY", 5))
@@ -18,6 +19,9 @@ var downloadSemaphore = make(chan struct{}, getEnvInt("DOWNLOAD_CONCURRENCY", 5)
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+
+	ytdlp.MustInstall(ctx, nil)
+	ytdlp.MustInstallFFmpeg(ctx, nil)
 
 	logger := slog.New(
 		tint.NewTextHandler(os.Stdout, &tint.Options{TimeFormat: "2006/01/02 15:04:05"}),
