@@ -68,7 +68,8 @@ func handleMediaURL(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	// Save options in memory and get the 8-char jobKey
-	jobKey := SaveJob(url.Value, info.ID, options)
+	title := safeFilename(valOr(info.Title, "Untitled"))
+	jobKey := SaveJob(url.Value, title, info.ID, options)
 
 	deleteMessage(ctx, b, chatID, statusMsg)
 	sendMediaCard(ctx, b, chatID, jobKey, info, options)
@@ -153,7 +154,7 @@ func handleDownloadCallback(ctx context.Context, b *bot.Bot, update *models.Upda
 
 	isAudioOnly := selectedOpt.Label == "Audio Only"
 	inputFile := &models.InputFileUpload{
-		Filename: filepath.Base(filePath),
+		Filename: filepath.Base(job.Title),
 		Data:     file,
 	}
 

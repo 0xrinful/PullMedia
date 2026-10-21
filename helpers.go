@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/lrstanley/go-ytdlp"
 )
+
+var illegalChars = regexp.MustCompile(`[<>:"/\\|?*]`)
 
 func valOr(s *string, fallback string) string {
 	if s == nil || *s == "" {
@@ -56,4 +59,14 @@ func fmtDuration(seconds *float64) string {
 		return fmt.Sprintf("%02d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%02d:%02d", m, s)
+}
+
+func safeFilename(title string) string {
+	name := illegalChars.ReplaceAllString(title, "")
+	name = strings.TrimSpace(name)
+
+	if name == "" {
+		return "download"
+	}
+	return name
 }

@@ -9,6 +9,7 @@ import (
 
 type DownloadJob struct {
 	URL       string
+	Title     string
 	VideoID   string
 	Options   []MediaOption
 	CreatedAt time.Time
@@ -16,13 +17,14 @@ type DownloadJob struct {
 
 var jobCache sync.Map
 
-func SaveJob(url string, videoID string, options []MediaOption) string {
+func SaveJob(url string, title string, videoID string, options []MediaOption) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	key := hex.EncodeToString(b)
 
 	jobCache.Store(key, DownloadJob{
 		URL:       url,
+		Title:     title,
 		VideoID:   videoID,
 		Options:   options,
 		CreatedAt: time.Now(),
