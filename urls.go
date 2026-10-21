@@ -11,6 +11,7 @@ const (
 	PlatformYouTube Platform = iota
 	PlatformFacebook
 	PlatformInstagram
+	PlatformTikTok
 )
 
 type VideoType int
@@ -39,6 +40,11 @@ var (
 	FBWatchShortPattern = regexp.MustCompile(
 		`(?i)^https?://fb\.watch/([a-zA-Z0-9_-]+)`,
 	)
+
+	// TikTok desktop (@user/video/id) and mobile/short share links (vm, vt, /t/)
+	TikTokPattern = regexp.MustCompile(
+		`(?i)^https?://(?:(?:www\.|m\.)?tiktok\.com/(?:@[\w.-]+/video/\d+|t/[\w-]+|v/\d+)|(?:vm|vt)\.tiktok\.com/[\w-]+)`,
+	)
 )
 
 var ErrUnsupportedLink = errors.New("unsupported link")
@@ -63,6 +69,9 @@ func ParseMediaURL(rawURL string) (*MediaURL, error) {
 		url.VideoType = VideoTypeShort
 	case FBReelPattern.MatchString(rawURL), FBWatchShortPattern.MatchString(rawURL):
 		url.Platform = PlatformFacebook
+		url.VideoType = VideoTypeShort
+	case TikTokPattern.MatchString(rawURL):
+		url.Platform = PlatformTikTok
 		url.VideoType = VideoTypeShort
 	default:
 		return nil, ErrUnsupportedLink

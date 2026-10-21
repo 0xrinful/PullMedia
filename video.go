@@ -95,6 +95,8 @@ func buildCleanOptions(
 		return buildYouTubeOptions(info, preferCompatibleMP4)
 	case PlatformInstagram, PlatformFacebook:
 		return buildMetaOptions(info, preferCompatibleMP4)
+	case PlatformTikTok:
+		return buildTikTokOptions(info, preferCompatibleMP4)
 	default:
 		return nil
 	}
@@ -303,6 +305,110 @@ func buildMetaOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []Med
 		}
 
 		// Fallback to pre-merged MP4 if DASH isn't available for this resolution tier
+		if cf, exists := bestCombinedByTier[tier]; exists {
+			cid := valOr(cf.FormatID, "")
+			options = append(options, MediaOption{
+				Label:      fmt.Sprintf("%dp", tier),
+				FormatID:   cid,
+				RawVideoID: cid,
+				Extension:  valOr(cf.Extension, "mp4"),
+				Codec:      valOr(cf.VCodec, "h264"),
+				TotalSize:  sizeBytes(cf),
+			})
+		}
+	}
+
+	return options
+}
+
+func buildTikTokOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []MediaOption {
+	var bestAudio *ytdlp.ExtractedFormat
+	bestCombinedByTier := make(map[int]*ytdlp.ExtractedFormat)
+
+	isH264 := func(codec string) bool {
+		c := strings.ToLower(codec)
+		return strings.HasPrefix(c, "avc1") || strings.Contains(c, "h264")
+	}
+
+	isWatermarked := func(f *ytdlp.ExtractedFormat) bool {
+		id := strings.ToLower(valOr(f.FormatID, ""))
+		note := strings.ToLower(valOr(f.FormatNote, ""))
+		return strings.Contains(id, "watermark") ||
+			strings.Contains(note, "watermark") ||
+			strings.HasPrefix(id, "download")
+	}
+
+	for _, f := range info.Formats {
+		proto := valOr(f.Protocol, "")
+		vcodec := valOr(f.VCodec, "none")
+		acodec := valOr(f.ACodec, "none")
+
+		if proto != "https" {
+			continue
+		}
+
+		hasVideo := vcodec != "none" && vcodec != "images"
+		hasAudio := acodec != "none" && acodec != "unknown"
+
+		// 1. Standalone Audio (TikTok provides an 'audio' m4a/mp3 stream)
+		if hasAudio && !hasVideo {
+			bestAudio = f
+			continue
+		}
+
+		// 2. Pre-merged Video + Audio (TikTok streams are progressive MP4s)
+		if hasVideo && hasAudio {
+			tier := getResolutionTier(f)
+			if tier == 0 {
+				continue
+			}
+
+			if existing, ok := bestCombinedByTier[tier]; ok {
+				// Never overwrite a clean stream with a watermarked stream
+				if !isWatermarked(existing) && isWatermarked(f) {
+					continue
+				}
+
+				// If both have the same watermark status, check codec preference
+				if isWatermarked(existing) == isWatermarked(f) {
+					if preferCompatibleMP4 && isH264(valOr(existing.VCodec, "")) &&
+						!isH264(vcodec) {
+						continue
+					}
+				}
+			}
+
+			bestCombinedByTier[tier] = f
+		}
+	}
+
+	var options []MediaOption
+
+	// 1. Audio Option
+	// Note: TikTok's standalone "audio" format is sometimes the original sound snippet
+	// or an MP3 with missing size metadata. Using "bestaudio/best" guarantees ffmpeg
+	// extracts clean .m4a audio directly, or uses the standalone m4a if valid.
+	if bestAudio != nil && valOr(bestAudio.Extension, "") == "m4a" {
+		options = append(options, MediaOption{
+			Label:     "Audio Only",
+			FormatID:  valOr(bestAudio.FormatID, ""),
+			Extension: "m4a",
+			Codec:     valOr(bestAudio.ACodec, "aac"),
+			TotalSize: sizeBytes(bestAudio),
+		})
+	} else if len(bestCombinedByTier) > 0 || bestAudio != nil {
+		options = append(options, MediaOption{
+			Label:     "Audio Only",
+			FormatID:  "bestaudio/best",
+			Extension: "m4a",
+			Codec:     "aac",
+			TotalSize: 0,
+		})
+	}
+
+	// 2. Video Options in fixed order
+	targetTiers := []int{144, 240, 360, 480, 720, 1080}
+	for _, tier := range targetTiers {
 		if cf, exists := bestCombinedByTier[tier]; exists {
 			cid := valOr(cf.FormatID, "")
 			options = append(options, MediaOption{
