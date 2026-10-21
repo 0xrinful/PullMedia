@@ -46,6 +46,7 @@ func handleMediaURL(ctx context.Context, b *bot.Bot, update *models.Update) {
 	url, err := ParseMediaURL(rawText)
 	if err != nil {
 		sendMessage(ctx, b, update, "❌ This link isn't supported.")
+		return
 	}
 
 	statusMsg, _ := b.SendMessage(ctx, &bot.SendMessageParams{
@@ -60,7 +61,7 @@ func handleMediaURL(ctx context.Context, b *bot.Bot, update *models.Update) {
 		return
 	}
 
-	options := buildCleanOptions(info, false)
+	options := buildCleanOptions(url, info, false)
 	if len(options) == 0 {
 		editMessage(ctx, b, chatID, statusMsg, "❌ No compatible formats found.")
 		return

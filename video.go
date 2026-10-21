@@ -33,42 +33,74 @@ func fetchVideoInfo(ctx context.Context, videoURL string) (*ytdlp.ExtractedInfo,
 }
 
 func getResolutionTier(f *ytdlp.ExtractedFormat) int {
-	// 1. Check if yt-dlp already labeled it in FormatNote (e.g., "720p60", "480p")
-	note := valOr(f.FormatNote, "")
+	note := strings.ToLower(valOr(f.FormatNote, ""))
+	formatID := strings.ToLower(valOr(f.FormatID, ""))
+
+	// 1. Check if yt-dlp already labeled it in FormatNote (e.g., "720p60", "480p", "DASH 1080p")
 	for _, tier := range []int{144, 240, 360, 480, 720, 1080, 1440, 2160} {
-		if strings.HasPrefix(note, fmt.Sprintf("%dp", tier)) {
+		tag := fmt.Sprintf("%dp", tier)
+		if strings.HasPrefix(note, tag) || strings.Contains(note, " "+tag) {
 			return tier
 		}
 	}
 
-	// 2. Fallback: Use the smaller side of Width x Height (handles 9:16 and 1:1)
-	if f.Width == nil || f.Height == nil {
-		return 0
-	}
-	shortSide := int(*f.Width)
-	if int(*f.Height) < shortSide {
-		shortSide = int(*f.Height)
+	// 2. Use the smaller side of Width x Height (handles 16:9, 9:16, 4:5, and 1:1)
+	if f.Width != nil && f.Height != nil {
+		w, h := int(*f.Width), int(*f.Height)
+		if w > 0 && h > 0 {
+			shortSide := w
+			if h < shortSide {
+				shortSide = h
+			}
+
+			switch {
+			case shortSide <= 160:
+				return 144
+			case shortSide <= 270:
+				return 240
+			case shortSide <= 400:
+				return 360
+			case shortSide <= 640: // Catches 480p and 540p (common on IG/FB)
+				return 480
+			case shortSide <= 768:
+				return 720
+			case shortSide <= 1152:
+				return 1080
+			case shortSide <= 1536:
+				return 1440
+			default:
+				return 2160
+			}
+		}
 	}
 
+	// 3. Fallback for Facebook / Instagram streams with nil dimensions
 	switch {
-	case shortSide <= 160:
-		return 144
-	case shortSide <= 270:
-		return 240
-	case shortSide <= 400:
-		return 360
-	case shortSide <= 640:
-		return 480
-	case shortSide <= 768:
+	case note == "hd" || formatID == "hd" || strings.Contains(formatID, "hd"):
 		return 720
-	case shortSide <= 1152:
-		return 1080
+	case note == "sd" || formatID == "sd" || strings.Contains(formatID, "sd"):
+		return 480
+	}
+
+	return 0
+}
+
+func buildCleanOptions(
+	mediaURL *MediaURL,
+	info *ytdlp.ExtractedInfo,
+	preferCompatibleMP4 bool,
+) []MediaOption {
+	switch mediaURL.Platform {
+	case PlatformYouTube:
+		return buildYouTubeOptions(info, preferCompatibleMP4)
+	case PlatformInstagram, PlatformFacebook:
+		return buildMetaOptions(info, preferCompatibleMP4)
 	default:
-		return 0
+		return nil
 	}
 }
 
-func buildCleanOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []MediaOption {
+func buildYouTubeOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []MediaOption {
 	var bestAudio *ytdlp.ExtractedFormat
 	bestVideoByTier := make(map[int]*ytdlp.ExtractedFormat)
 
@@ -170,6 +202,118 @@ func buildCleanOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []Me
 			Codec:      valOr(vf.VCodec, ""),
 			TotalSize:  totalBytes,
 		})
+	}
+
+	return options
+}
+
+func buildMetaOptions(info *ytdlp.ExtractedInfo, preferCompatibleMP4 bool) []MediaOption {
+	var bestAudio *ytdlp.ExtractedFormat
+	bestVideoByTier := make(map[int]*ytdlp.ExtractedFormat)
+	bestCombinedByTier := make(map[int]*ytdlp.ExtractedFormat)
+
+	for _, f := range info.Formats {
+		proto := valOr(f.Protocol, "")
+		vcodec := valOr(f.VCodec, "none")
+		acodec := valOr(f.ACodec, "none")
+		ext := valOr(f.Extension, "")
+
+		// Meta uses https and http_dash_segments, and almost never reports file size
+		if proto != "https" && proto != "http_dash_segments" {
+			continue
+		}
+
+		hasVideo := vcodec != "none" && vcodec != "images"
+		// Meta progressive MP4s often leave acodec as "unknown" even when audio is embedded
+		hasAudio := acodec != "none" && (acodec != "unknown" || (ext == "mp4" && hasVideo))
+
+		// 1. Standalone Audio (DASH audio track)
+		if hasAudio && !hasVideo {
+			bestAudio = f
+			continue
+		}
+
+		// 2. Standalone Video (DASH video track - usually highest quality 720p/1080p)
+		if hasVideo && !hasAudio {
+			tier := getResolutionTier(f)
+			if tier == 0 {
+				continue
+			}
+			if preferCompatibleMP4 && !strings.HasPrefix(vcodec, "avc1") {
+				if existing, ok := bestVideoByTier[tier]; ok &&
+					strings.HasPrefix(valOr(existing.VCodec, ""), "avc1") {
+					continue
+				}
+			}
+			bestVideoByTier[tier] = f
+			continue
+		}
+
+		// 3. Pre-merged Video + Audio (Fallback MP4s on IG/FB)
+		if hasVideo && hasAudio {
+			tier := getResolutionTier(f)
+			if tier == 0 {
+				continue
+			}
+			bestCombinedByTier[tier] = f
+		}
+	}
+
+	var options []MediaOption
+	var audioID string
+
+	if bestAudio != nil {
+		audioID = valOr(bestAudio.FormatID, "")
+		options = append(options, MediaOption{
+			Label:     "Audio Only",
+			FormatID:  audioID,
+			Extension: valOr(bestAudio.Extension, "m4a"),
+			Codec:     valOr(bestAudio.ACodec, "aac"),
+			TotalSize: sizeBytes(bestAudio),
+		})
+	} else if len(bestCombinedByTier) > 0 {
+		// If Meta only gave pre-merged MP4s, let yt-dlp extract audio from best stream
+		options = append(options, MediaOption{
+			Label:     "Audio Only",
+			FormatID:  "bestaudio/best",
+			Extension: "m4a",
+			Codec:     "aac",
+			TotalSize: 0,
+		})
+	}
+
+	targetTiers := []int{144, 240, 360, 480, 720, 1080}
+	for _, tier := range targetTiers {
+		// Prefer DASH video+audio merge first
+		if vf, exists := bestVideoByTier[tier]; exists {
+			vidID := valOr(vf.FormatID, "")
+			combinedID := vidID
+			if audioID != "" {
+				combinedID = fmt.Sprintf("%s+%s", vidID, audioID)
+			}
+			options = append(options, MediaOption{
+				Label:      fmt.Sprintf("%dp", tier),
+				FormatID:   combinedID,
+				RawVideoID: vidID,
+				Extension:  "mp4",
+				Codec:      valOr(vf.VCodec, ""),
+				TotalSize:  0,
+			})
+			continue
+		}
+
+		// Fallback to pre-merged MP4 if DASH isn't available for this resolution tier
+		if cf, exists := bestCombinedByTier[tier]; exists {
+			cid := valOr(cf.FormatID, "")
+			options = append(options, MediaOption{
+				Label:      fmt.Sprintf("%dp", tier),
+				FormatID:   cid,
+				RawVideoID: cid,
+				Extension:  valOr(cf.Extension, "mp4"),
+				Codec:      valOr(cf.VCodec, "h264"),
+				TotalSize:  sizeBytes(cf),
+			})
+		}
 	}
 
 	return options

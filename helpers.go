@@ -47,7 +47,7 @@ func fmtSize(bytes int) string {
 
 func fmtDuration(seconds *float64) string {
 	if seconds == nil || *seconds <= 0 {
-		return "00:00"
+		return "Unknown"
 	}
 
 	total := int(*seconds)
