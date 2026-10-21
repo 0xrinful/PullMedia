@@ -14,7 +14,10 @@ import (
 	"github.com/lrstanley/go-ytdlp"
 )
 
-var downloadSemaphore = make(chan struct{}, getEnvInt("DOWNLOAD_CONCURRENCY", 5))
+var (
+	downloadSemaphore = make(chan struct{}, getEnvInt("DOWNLOAD_CONCURRENCY", 5))
+	cookiesFile       = os.Getenv("YTDLP_COOKIES_FILE")
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)

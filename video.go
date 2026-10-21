@@ -18,7 +18,7 @@ type MediaOption struct {
 }
 
 func fetchVideoInfo(ctx context.Context, videoURL string) (*ytdlp.ExtractedInfo, error) {
-	dl := ytdlp.New().NoPlaylist()
+	dl := ytdlp.New().NoPlaylist().Cookies(cookiesFile)
 
 	infoList, _, err := dl.ExtractInfo(ctx, videoURL)
 	if err != nil {

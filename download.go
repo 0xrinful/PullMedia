@@ -27,7 +27,8 @@ func downloadMediaOption(
 	dl := ytdlp.New().
 		NoPlaylist().
 		Format(opt.FormatID).
-		Output(outputTemplate)
+		Output(outputTemplate).
+		Cookies(cookiesFile)
 
 	// 3. Determine what the final file extension on disk will be
 	finalExt := opt.Extension // For audio-only (e.g. "m4a" or "webm")
