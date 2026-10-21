@@ -65,7 +65,6 @@ func handleMediaURL(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if len(options) == 0 {
 		editMessage(ctx, b, chatID, statusMsg, "❌ No compatible formats found.")
 		return
-
 	}
 
 	// Save options in memory and get the 8-char jobKey
@@ -234,16 +233,16 @@ func sendMediaCard(
 }
 
 func buildFormatKeyboard(jobKey string, options []MediaOption) *models.InlineKeyboardMarkup {
-	var rows [][]models.InlineKeyboardButton
+	rows := [][]models.InlineKeyboardButton{}
 	var currentRow []models.InlineKeyboardButton
 	var audioBtn *models.InlineKeyboardButton
 
 	for idx, opt := range options {
 		// ⚠️ Telegram bots have a strict 50 MB upload limit on standard Bot API!
 		// Skip options over 49.5 MB so the upload doesn't fail.
-		if float64(opt.TotalSize)/(1024*1024) > 49.5 {
-			continue
-		}
+		// if float64(opt.TotalSize)/(1024*1024) > 49.5 {
+		// 	continue
+		// }
 
 		// Pack everything needed to download into CallbackData (max 64 bytes)
 		// Format: "dl|<jobKey>|<index>"
